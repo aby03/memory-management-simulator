@@ -1,11 +1,12 @@
 from math import ceil
 
 tlb_algo = "FIFO"
+pr_algo = "FIFO"
 tlb = []
 tlb_size = 4
 ram_sz = 60
 hdd_sz = 256
-swap_sz = 8
+swap_sz = 128
 page_sz = 4
 proc_dict = {}
 kernel_pt = {}
@@ -26,16 +27,22 @@ class TLB_Entry:
 		self.ppn = -1;
 		self.valid = False;
 
-	def insert(self,pid,vpn,ppn):
+	def insert(self, pid, vpn, ppn):
 		self.pid = pid
 		self.vpn = vpn;
 		self.ppn = ppn;
 		self.valid = True;
 
-	def checkEqual(pid, vpn):
+	def checkEqual(self, pid, vpn):
 		if (self.pid == pid and self.vpn == vpn):
 			return True
 		return False;
+
+	def __string__(self):
+		return "(" + str(self.pid) + "," + str(self.vpn) + "," + str(self.ppn) + ")" 
+
+	def printfn(self):
+		print("(" + str(self.pid) + "," + str(self.vpn) + "," + str(self.ppn) + "," + str(self.valid) + ")")
 
 class PT_Entry:
 	# vpn = -1
@@ -52,25 +59,26 @@ class Process:
 	def __init__(self, p, vsz):
 		self.pid = p
 		self.vsize = vsz
-		self.ptable = [None for i in range(ceil(vsz/page_sz))]
+		self.ptable = [None for i in range(int(ceil(vsz/page_sz)))]
 
 # Function to Display TLB, RAM, Swap Space
 def show_memory():
 	print("Memory here")
 
 def insert_tlb(entry):
-	if len(tlb) < tlb_size:
+	for i in range(len(tlb)):
+		if (not tlb[i].valid):
+			tlb[i] = entry
+			return
+	if tlb_algo == "FIFO":
+		tlb.pop(0)
 		tlb.append(entry)
-	else:
-		if tlb_algo == "FIFO":
-			tlb.pop(0)
-			tlb.append(entry)
-		elif tlb_algo == "OPT":
-			a = 1
-			# To do
-		elif tlb_algo == "LRU":
-			a = 1
-			# To Do
+	elif tlb_algo == "OPT":
+		a = 1
+		# To do
+	elif tlb_algo == "LRU":
+		a = 1
+		# To Do
 
 def check_tlb(pid, page_num):
 	for i in tlb:
@@ -80,9 +88,52 @@ def check_tlb(pid, page_num):
 	print("TLB Miss")
 	return False
 
+def check_ram(pid, page_num):
+	proc = proc_dict[pid]
+	page_entry = proc.ptable[page_num]
+
+	if (page_entry.present == True):
+		print("Found at PPN:",page_entry.ppn)
+		elem = TLB_Entry()
+		elem.insert(pid,page_num,page_entry.ppn)
+		insert_tlb(elem)
+		return True
+
+	print("PAGE_FAULT")
+	return False
+
+def check_kpt(pid, page_num):
+	spn = kernel_pt[(pid,page_num)]
+	if (ram_pages_free == 0):
+		# ((pid_free,proc_vpn),ram_ind) = mem_toBeFreed()
+		((pid_free,proc_vpn),ram_ind) = (ram[0], 0)
+		proc_dict[pid_free].ptable[ram_ind].present = False
+		proc_dict[pid_free].ptable[ram_ind].ppn = spn
+		swap[spn] = (pid_free,proc_vpn)
+		kernel_pt[(pid_free,proc_vpn)] = spn
+		for i in tlb:
+			if (i.checkEqual(pid_free,proc_vpn)):
+				i.valid = False
+				break
+	else:
+		for i in range(len(ram)):
+			if (i == None):
+				ram_ind = i
+				break
+	ram[ram_ind] = (pid,page_num)
+	proc_dict[pid].ptable[page_num].present = True
+	proc_dict[pid].ptable[page_num].ppn = ram_ind
+
+	elem = TLB_Entry()
+	elem.insert(pid,page_num,ram_ind)
+	insert_tlb(elem)
+
 
 def access_mem(pid, address):
 	page_num = address/page_sz
+	if (address+1 > proc_dict[pid].vsize):
+		print("Invalid Virtual Address")
+		return 
 	if (proc_dict.has_key(pid)):
 		if(not check_tlb(pid,page_num)):
 			if (not check_ram(pid, page_num)):
@@ -126,8 +177,8 @@ def insert_proc(pid, v_size):
 
 # Initialize
 if __name__ == "__main__":
-	ram_numpages = ceil(ram_sz/page_sz)
-	swap_numpages = ceil(swap_sz/page_sz)
+	ram_numpages = int(ceil(ram_sz/page_sz))
+	swap_numpages = int(ceil(swap_sz/page_sz))
 	ram = [None for i in range(ram_numpages)]
 	swap = [None for i in range(swap_numpages)]
 	tlb = [TLB_Entry() for i in range(tlb_size)]
@@ -144,27 +195,27 @@ if __name__ == "__main__":
 		k = i.split()
 		insert_proc(int(k[0]),int(k[1]))
 
-	print(ram)
-	print(kernel_pt)
+	# print(ram)
+	# print(kernel_pt)
 
+	filename2 = "sample inputfile2.txt"
+	with open(filename2) as file_obj:
+		access_lines = file_obj.read().strip().split('\n')
 
-	# filename2 = "sample inputfile2.txt"
-	# with open(filename2) as file_obj:
-	# 	access_lines = file_obj.read().strip().split('\n')
-
-	# print(access_lines)
-
-	# for i in range(len(access_lines)):
-	# 	k = access_lines[i].split()
-	# 	access_lines[i] = (int(k[0]),int(k[1]))
+	for i in range(len(access_lines)):
+		k = access_lines[i].split()
+		access_lines[i] = (int(k[0]),int(k[1]))
 
 	
 
-	# for i in access_lines:
-	# 	print("Requesting memory for process %d and virtual address %d",i[0],i[1])
-	# 	data = access_mem(i[0],i[1])
-	# 	print(data)
-	# 	print('\n')
+	for i in access_lines:
+		print("Requesting memory for process " + str(i[0]) + " and virtual address " + str(i[1]))
+		data = access_mem(i[0],i[1])
+		# print(data)
+		# for i in tlb:
+		# 	i.printfn()
+		# print(ram)
+		print('\n')
 
 	# print(lines)
 	# 
