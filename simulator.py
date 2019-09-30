@@ -130,11 +130,11 @@ def check_kpt(pid, page_num):
 
 
 def access_mem(pid, address):
-	page_num = address/page_sz
+	page_num = int(address/page_sz)
 	if (address+1 > proc_dict[pid].vsize):
 		print("Invalid Virtual Address")
 		return 
-	if (proc_dict.has_key(pid)):
+	if (pid in proc_dict):
 		if(not check_tlb(pid,page_num)):
 			if (not check_ram(pid, page_num)):
 				check_kpt(pid,page_num)
