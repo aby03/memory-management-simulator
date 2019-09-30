@@ -180,22 +180,24 @@ def mem_toBeFreed():
 
 def access_mem(pid, address):
 	page_num = int(address/page_sz)
+    # Segmentation Fault if address greater than virtual space accessed
 	if (address+1 > proc_dict[pid].vsize):
-		print("Invalid Virtual Address")
-		return 
+		print("ERROR: Segmentation Fault.")
+		return
+    
 	if (pid in proc_dict):
 		if(not check_tlb(pid,page_num)):
 			if (not check_ram(pid, page_num)):
 				check_kpt(pid,page_num)
 	else:
-		print("Invalid Process ",pid)
+		print("ERROR: No running process with pid: ",pid)
 
 def insert_proc(pid, v_size):
 	num_pages = ceil(v_size/page_sz)
 	global ram_pages_free, swap_pages_free
 
 	if (num_pages > ram_pages_free + swap_pages_free):
-		print("Dropping process " + str(pid) + ". Not enough memory.")
+		print("ERROR: Dropping process " + str(pid) + ". Not enough memory.")
 		return
 
 	curr_proc = Process(pid, v_size)
@@ -269,6 +271,7 @@ if __name__ == "__main__":
 		print("RAM: ",ram)
 		print("Swap: ",swap)
 		access_count+=1
+        #print('\n')
 		# print(data)
 		# for i in tlb:
 		# 	i.printfn()
