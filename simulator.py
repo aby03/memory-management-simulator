@@ -208,14 +208,14 @@ if __name__ == "__main__":
 
 	
 
-	for i in access_lines:
-		print("Requesting memory for process " + str(i[0]) + " and virtual address " + str(i[1]))
-		data = access_mem(i[0],i[1])
+	for i in range(len(access_lines)):
+		print("### MEM ACCESS " + str(i) + " PID: " + str(access_lines[i][0]) + " VA: " + str(access_lines[i][1]))
+		data = access_mem(access_lines[i][0],access_lines[i][1])
 		# print(data)
 		# for i in tlb:
 		# 	i.printfn()
 		# print(ram)
-		print('\n')
+		# print('\n')
 
 	# print(lines)
 	# 
