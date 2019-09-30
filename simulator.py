@@ -1,8 +1,9 @@
 from math import ceil
 
-tlb_algo = "FIFO"
-pr_algo = "FIFO"
+tlb_algo = "OPT"
+pr_algo = "OPT"
 tlb = []
+tlb_lru = []
 tlb_size = 4
 ram_sz = 60
 hdd_sz = 256
@@ -17,8 +18,9 @@ ram_pages_free = 0;
 swap_pages_free = 0;
 ram_numpages = 0;
 swap_numpages = 0;
+access_count = 0
 
-# class Page:
+fifo_pr = []
 
 class TLB_Entry:
 	def __init__(self):
@@ -66,19 +68,41 @@ def show_memory():
 	print("Memory here")
 
 def insert_tlb(entry):
-	for i in range(len(tlb)):
-		if (not tlb[i].valid):
-			tlb[i] = entry
-			return
 	if tlb_algo == "FIFO":
+		# Add if empty space
+		for i in range(len(tlb)):
+			if (not tlb[i].valid):
+				tlb[i] = entry
+				return
+		# Replace with FIFO
 		tlb.pop(0)
 		tlb.append(entry)
-	elif tlb_algo == "OPT":
-		a = 1
-		# To do
 	elif tlb_algo == "LRU":
-		a = 1
-		# To Do
+		# Add if empty space
+		for i in range(len(tlb)):
+			if (not tlb[i].valid):
+				tlb[i] = entry
+				tlb_lru[i] = access_count
+				return
+		# Replace with LRU
+		index = tlb_lru.index(min(tlb_lru))
+		tlb[index] = entry
+		tlb_lru[index] = access_count
+	elif tlb_algo == "OPT":
+		# Add if empty space
+		for i in range(len(tlb)):
+			if (not tlb[i].valid):
+				tlb[i] = entry
+				return
+		# Replace with OPT
+		tlb_opt= [0 for i in range(len(tlb))]
+		for i in range(len(tlb)):
+			for j in range(access_count, len(access_lines)):
+				if tlb[i].checkEqual(access_lines[j][0], int(access_lines[j][1]/page_sz)):
+					tlb_opt[i] = j
+					break
+		index = tlb_opt.index(max(tlb_opt))
+		tlb[index] = entry
 
 def check_tlb(pid, page_num):
 	for i in tlb:
@@ -105,10 +129,10 @@ def check_ram(pid, page_num):
 def check_kpt(pid, page_num):
 	spn = kernel_pt[(pid,page_num)]
 	if (ram_pages_free == 0):
-		# ((pid_free,proc_vpn),ram_ind) = mem_toBeFreed()
-		((pid_free,proc_vpn),ram_ind) = (ram[0], 0)
-		proc_dict[pid_free].ptable[ram_ind].present = False
-		proc_dict[pid_free].ptable[ram_ind].ppn = spn
+		((pid_free,proc_vpn),ram_ind) = mem_toBeFreed()
+		# ((pid_free,proc_vpn),ram_ind) = (ram[0], 0)
+		proc_dict[pid_free].ptable[proc_vpn].present = False
+		proc_dict[pid_free].ptable[proc_vpn].ppn = spn
 		swap[spn] = (pid_free,proc_vpn)
 		kernel_pt[(pid_free,proc_vpn)] = spn
 		for i in tlb:
@@ -119,6 +143,7 @@ def check_kpt(pid, page_num):
 		for i in range(len(ram)):
 			if (i == None):
 				ram_ind = i
+				fifo_pr.append(i)
 				break
 	ram[ram_ind] = (pid,page_num)
 	proc_dict[pid].ptable[page_num].present = True
@@ -127,6 +152,30 @@ def check_kpt(pid, page_num):
 	elem = TLB_Entry()
 	elem.insert(pid,page_num,ram_ind)
 	insert_tlb(elem)
+
+def mem_toBeFreed():
+	if pr_algo == "FIFO":
+		ind = fifo_pr.pop(0)
+		fifo_pr.append(ind)
+		return (ram[ind],ind)
+	elif pr_algo == "LRU":
+		ram_lru = [-1 for i in ram]
+		for i in range(len(ram)):
+			for j in range(access_count-1,-1,-1):
+				if ram[i][0] == access_lines[j][0] and ram[i][1] == access_lines[j][1]:
+					ram_lru[i] = j
+					break
+		index = ram_lru.index(min(ram_lru))
+		return (ram[index],index)
+	elif pr_algo == "OPT":
+		ram_opt = [float('inf') for i in ram]
+		for i in range(len(ram)):
+			for j in range(access_count,len(access_lines)):
+				if ram[i][0] == access_lines[j][0] and ram[i][1] == access_lines[j][1]:
+					ram_opt[i] = j
+					break
+		index = ram_opt.index(max(ram_opt))
+		return (ram[index],index)
 
 
 def access_mem(pid, address):
@@ -161,6 +210,7 @@ def insert_proc(pid, v_size):
 			curr_proc.ptable[page_count] = PT_Entry(i,True)
 			page_count += 1
 			ram_pages_free -= 1
+			fifo_pr.append(i)
 
 	for i in range(len(swap)):
 		if (page_count == num_pages):
@@ -182,6 +232,8 @@ if __name__ == "__main__":
 	ram = [None for i in range(ram_numpages)]
 	swap = [None for i in range(swap_numpages)]
 	tlb = [TLB_Entry() for i in range(tlb_size)]
+	if tlb_algo == "LRU":
+		tlb_lru = [0 for i in range(tlb_size)]
 	ram_pages_free = ram_numpages
 	swap_pages_free = swap_numpages
 
@@ -207,15 +259,21 @@ if __name__ == "__main__":
 		access_lines[i] = (int(k[0]),int(k[1]))
 
 	
-
+	# print("TEST: ",)
 	for i in range(len(access_lines)):
 		print("### MEM ACCESS " + str(i) + " PID: " + str(access_lines[i][0]) + " VA: " + str(access_lines[i][1]))
 		data = access_mem(access_lines[i][0],access_lines[i][1])
+		print("TLB: ")
+		for i in tlb:
+			i.printfn()
+		print("RAM: ",ram)
+		print("Swap: ",swap)
+		access_count+=1
 		# print(data)
 		# for i in tlb:
 		# 	i.printfn()
 		# print(ram)
 		# print('\n')
-
+	# print(access_lines)
 	# print(lines)
 	# 
