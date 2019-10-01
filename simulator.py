@@ -1,14 +1,16 @@
 from math import ceil
 
-tlb_algo = "OPT"
+tlb_algo = "FIFO"
 pr_algo = "OPT"
-tlb = []
-tlb_lru = []
+page_sz = 4
 tlb_size = 4
 ram_sz = 60
-hdd_sz = 256
 swap_sz = 128
-page_sz = 4
+hdd_sz = 256
+
+
+tlb = []
+tlb_lru = []
 proc_dict = {}
 kernel_pt = {}
 
@@ -18,7 +20,12 @@ ram_pages_free = 0;
 swap_pages_free = 0;
 ram_numpages = 0;
 swap_numpages = 0;
-access_count = 0
+access_count = 0;
+
+total_hits = 0;
+total_miss = 0;
+total_pagefaults = 0;
+total_errors = 0;
 
 fifo_pr = []
 
@@ -85,6 +92,7 @@ def insert_tlb(entry):
 				tlb_lru[i] = access_count
 				return
 		# Replace with LRU
+		# print("TLB LRU:",tlb_lru)
 		index = tlb_lru.index(min(tlb_lru))
 		tlb[index] = entry
 		tlb_lru[index] = access_count
@@ -95,24 +103,29 @@ def insert_tlb(entry):
 				tlb[i] = entry
 				return
 		# Replace with OPT
-		tlb_opt= [0 for i in range(len(tlb))]
+		tlb_opt= [float('inf') for i in range(len(tlb))]
 		for i in range(len(tlb)):
 			for j in range(access_count, len(access_lines)):
 				if tlb[i].checkEqual(access_lines[j][0], int(access_lines[j][1]/page_sz)):
 					tlb_opt[i] = j
 					break
+		# print("TLB OPT:",tlb_opt)
 		index = tlb_opt.index(max(tlb_opt))
 		tlb[index] = entry
 
 def check_tlb(pid, page_num):
+	global total_miss, total_hits
 	for i in tlb:
 		if (i.valid == True and i.checkEqual(pid, page_num) == True):
+			total_hits+=1
 			print("TLB hit")
 			return True
+	total_miss+=1
 	print("TLB Miss")
 	return False
 
 def check_ram(pid, page_num):
+	global total_pagefaults
 	proc = proc_dict[pid]
 	page_entry = proc.ptable[page_num]
 
@@ -122,11 +135,12 @@ def check_ram(pid, page_num):
 		elem.insert(pid,page_num,page_entry.ppn)
 		insert_tlb(elem)
 		return True
-
+	total_pagefaults+=1
 	print("PAGE_FAULT")
 	return False
 
 def check_kpt(pid, page_num):
+	global ram_pages_free
 	spn = kernel_pt[(pid,page_num)]
 	if (ram_pages_free == 0):
 		((pid_free,proc_vpn),ram_ind) = mem_toBeFreed()
@@ -140,8 +154,9 @@ def check_kpt(pid, page_num):
 				i.valid = False
 				break
 	else:
+		ram_pages_free-=1
 		for i in range(len(ram)):
-			if (i == None):
+			if (ram[i] == None):
 				ram_ind = i
 				fifo_pr.append(i)
 				break
@@ -162,18 +177,20 @@ def mem_toBeFreed():
 		ram_lru = [-1 for i in ram]
 		for i in range(len(ram)):
 			for j in range(access_count-1,-1,-1):
-				if ram[i][0] == access_lines[j][0] and ram[i][1] == access_lines[j][1]:
+				if ram[i][0] == access_lines[j][0] and ram[i][1] == int(access_lines[j][1]/page_sz):
 					ram_lru[i] = j
 					break
+		# print("RAM LRU:",ram_lru)
 		index = ram_lru.index(min(ram_lru))
 		return (ram[index],index)
 	elif pr_algo == "OPT":
 		ram_opt = [float('inf') for i in ram]
 		for i in range(len(ram)):
 			for j in range(access_count,len(access_lines)):
-				if ram[i][0] == access_lines[j][0] and ram[i][1] == access_lines[j][1]:
+				if ram[i][0] == access_lines[j][0] and ram[i][1] == int(access_lines[j][1]/page_sz):
 					ram_opt[i] = j
 					break
+		# print("RAM OPT:",ram_opt)
 		index = ram_opt.index(max(ram_opt))
 		return (ram[index],index)
 
@@ -190,27 +207,41 @@ def kill_process(pid):
 		if (swap[i] != None and swap[i][0] == pid):
 			swap[i] = None
 			swap_pages_free += 1
-	print("Process ", pid, " killed due to invalid memory access")
+	del proc_dict[pid]
+
+	lst = [i for i in kernel_pt]
+	for i in lst:
+		if (i[0] == pid):
+			del kernel_pt[i]
+
+	print("Process", pid, "killed due to invalid memory access")
 
 
 def access_mem(pid, address):
+	global total_errors
 	page_num = int(address/page_sz)
-    # Segmentation Fault if address greater than virtual space accessed
-	if (address+1 > proc_dict[pid].vsize):
+	# Segmentation Fault if address greater than virtual space accessed
+	if (pid not in proc_dict):
+		print("ERROR: No running process with pid: ",pid)
+		total_errors+=1
+		return
+
+	if (address+1 > proc_dict[pid].vsize or address < 0):
 		print("ERROR: Segmentation Fault.")
 		kill_process(pid)
+		total_errors+=1
 		return
-    
-	if (pid in proc_dict):
-		if(not check_tlb(pid,page_num)):
-			if (not check_ram(pid, page_num)):
-				check_kpt(pid,page_num)
-	else:
-		print("ERROR: No running process with pid: ",pid)
+	
+	if(not check_tlb(pid,page_num)):
+		if (not check_ram(pid, page_num)):
+			check_kpt(pid,page_num)
 
 def insert_proc(pid, v_size):
 	num_pages = ceil(v_size/page_sz)
 	global ram_pages_free, swap_pages_free
+
+	if (pid in proc_dict):
+		print("ERROR: Process already exists with same pid",pid)
 
 	if (num_pages > ram_pages_free + swap_pages_free):
 		print("ERROR: Dropping process " + str(pid) + ". Not enough memory.")
@@ -263,7 +294,7 @@ if __name__ == "__main__":
 
 	for i in proc_lines:
 		k = i.split()
-		insert_proc(int(k[0]),int(k[1]))
+		insert_proc(int(float(k[0])),int(ceil(float(k[1]))))
 
 	# print(ram)
 	# print(kernel_pt)
@@ -279,15 +310,21 @@ if __name__ == "__main__":
 	
 	# print("TEST: ",)
 	for i in range(len(access_lines)):
-		print("### MEM ACCESS " + str(i) + " PID: " + str(access_lines[i][0]) + " VA: " + str(access_lines[i][1]), " PG: ", int(access_lines[i][1]/page_sz))
+		print("### MEM ACCESS " + str(i+1) + " PID: " + str(access_lines[i][0]) + " PG: ", str(int(access_lines[i][1]/page_sz)) + " VA: " + str(access_lines[i][1]))
 		data = access_mem(access_lines[i][0],access_lines[i][1])
-		print("TLB: ")
-		for i in tlb:
-			i.printfn()
-		print("RAM: ",ram)
-		print("Swap: ",swap)
+		# print("TLB: ")
+		# for i in tlb:
+			# i.printfn()
+		# print("RAM: ",ram)
+		# print("Swap: ",swap)
+		print()
 		access_count+=1
-        #print('\n')
+
+	print("Total hits:",total_hits)
+	print("Total misses:",total_miss)
+	print("Total page faults:",total_pagefaults)
+	print("Total errors:",total_errors)
+		#print('\n')
 		# print(data)
 		# for i in tlb:
 		# 	i.printfn()
