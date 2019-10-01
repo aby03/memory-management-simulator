@@ -177,12 +177,28 @@ def mem_toBeFreed():
 		index = ram_opt.index(max(ram_opt))
 		return (ram[index],index)
 
+def kill_process(pid):
+	global ram_pages_free, swap_pages_free
+	for i in tlb:
+		if (i.pid == pid):
+			i.valid = False
+	for i in range(len(ram)):
+		if (ram[i] != None and ram[i][0] == pid):
+			ram[i] = None
+			ram_pages_free += 1
+	for i in range(len(swap)):
+		if (swap[i] != None and swap[i][0] == pid):
+			swap[i] = None
+			swap_pages_free += 1
+	print("Process ", pid, " killed due to invalid memory access")
+
 
 def access_mem(pid, address):
 	page_num = int(address/page_sz)
     # Segmentation Fault if address greater than virtual space accessed
 	if (address+1 > proc_dict[pid].vsize):
 		print("ERROR: Segmentation Fault.")
+		kill_process(pid)
 		return
     
 	if (pid in proc_dict):
@@ -263,7 +279,7 @@ if __name__ == "__main__":
 	
 	# print("TEST: ",)
 	for i in range(len(access_lines)):
-		print("### MEM ACCESS " + str(i) + " PID: " + str(access_lines[i][0]) + " VA: " + str(access_lines[i][1]))
+		print("### MEM ACCESS " + str(i) + " PID: " + str(access_lines[i][0]) + " VA: " + str(access_lines[i][1]), " PG: ", int(access_lines[i][1]/page_sz))
 		data = access_mem(access_lines[i][0],access_lines[i][1])
 		print("TLB: ")
 		for i in tlb:
